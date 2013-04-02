@@ -142,7 +142,7 @@ void wiegand_timer(unsigned long data)
     w->lastCardNumber);
   
   //turn off the green led
-  at91_set_gpio_value(AT91_PIN_PB28, 0);
+  at91_set_gpio_value(AT91_PIN_PB9, 0);
 
   //reset for next reading 
   wiegand_clear(w);  
@@ -156,55 +156,55 @@ int init_module()
   
   wiegand_init(&wiegand);
   
-  if(at91_set_gpio_output(AT91_PIN_PB27, 1)) 
+  if(at91_set_gpio_output(AT91_PIN_PB8, 1)) 
   {
-    printk(KERN_DEBUG"Could not set pin %i for GPIO output.\n", AT91_PIN_PB27);
+    printk(KERN_DEBUG"Could not set pin %i for GPIO output.\n", AT91_PIN_PB8);
     return -EIO;
   }
-  if(at91_set_gpio_output(AT91_PIN_PB28, 1)) 
+  if(at91_set_gpio_output(AT91_PIN_PB9, 1)) 
   {
-    printk(KERN_DEBUG"Could not set pin %i for GPIO output.\n", AT91_PIN_PB28);
+    printk(KERN_DEBUG"Could not set pin %i for GPIO output.\n", AT91_PIN_PB9);
     return -EIO;
   }
  
   /** Set pin as GPIO input, with internal pull up */
-  if(at91_set_gpio_input(AT91_PIN_PB30, 1)) 
+  if(at91_set_gpio_input(AT91_PIN_PB7, 1)) 
   {
-    printk(KERN_DEBUG"Could not set pin %i for GPIO input.\n", AT91_PIN_PB30);
+    printk(KERN_DEBUG"Could not set pin %i for GPIO input.\n", AT91_PIN_PB7);
     return -EIO;
   }
 
   /** Set pin as GPIO input, with internal pull up */
-  if(at91_set_gpio_input(AT91_PIN_PB31, 1)) 
+  if(at91_set_gpio_input(AT91_PIN_PB6, 1)) 
   {
-    printk(KERN_DEBUG"Could not set pin %i for GPIO input.\n", AT91_PIN_PB31);
+    printk(KERN_DEBUG"Could not set pin %i for GPIO input.\n", AT91_PIN_PB6);
     return -EIO;
   }
 
   /** Set deglitch for pin */
-  if(at91_set_deglitch(AT91_PIN_PB30, 1)) 
+  if(at91_set_deglitch(AT91_PIN_PB7, 1)) 
   {
-    printk(KERN_DEBUG"Could not set pin %i for GPIO deglitch.\n", AT91_PIN_PB30);
+    printk(KERN_DEBUG"Could not set pin %i for GPIO deglitch.\n", AT91_PIN_PB7);
     return -EIO;
   }
 
   /** Set deglitch for pin */
-  if(at91_set_deglitch(AT91_PIN_PB31, 1)) 
+  if(at91_set_deglitch(AT91_PIN_PB6, 1)) 
   {
-    printk(KERN_DEBUG"Could not set pin %i for GPIO deglitch.\n", AT91_PIN_PB31);
+    printk(KERN_DEBUG"Could not set pin %i for GPIO deglitch.\n", AT91_PIN_PB6);
     return -EIO;
   }
       
   /** Request IRQ for pin */
-  if(request_irq(AT91_PIN_PB30, wiegand_data_isr, IRQF_TRIGGER_FALLING|IRQF_TRIGGER_RISING, "wiegand_data", &wiegand))
+  if(request_irq(AT91_PIN_PB7, wiegand_data_isr, IRQF_TRIGGER_FALLING|IRQF_TRIGGER_RISING, "wiegand_data", &wiegand))
   {
-    printk(KERN_DEBUG"Can't register IRQ %d\n", AT91_PIN_PB30);
+    printk(KERN_DEBUG"Can't register IRQ %d\n", AT91_PIN_PB7);
     return -EIO;
   }
 
-  if(request_irq(AT91_PIN_PB31, wiegand_data_isr, IRQF_TRIGGER_FALLING|IRQF_TRIGGER_RISING, "wiegand_data", &wiegand))
+  if(request_irq(AT91_PIN_PB6, wiegand_data_isr, IRQF_TRIGGER_FALLING|IRQF_TRIGGER_RISING, "wiegand_data", &wiegand))
   {
-    printk(KERN_DEBUG"Can't register IRQ %d\n", AT91_PIN_PB31);
+    printk(KERN_DEBUG"Can't register IRQ %d\n", AT91_PIN_PB6);
     return -EIO;
   }
   
@@ -229,8 +229,8 @@ int init_module()
   timer.data = (unsigned long) &wiegand;
   
   //turn off leds 
-  at91_set_gpio_value(AT91_PIN_PB27, 0);
-  at91_set_gpio_value(AT91_PIN_PB28, 0);
+  at91_set_gpio_value(AT91_PIN_PB8, 0);
+  at91_set_gpio_value(AT91_PIN_PB9, 0);
 
   printk("wiegand ready\n");
   return retval;  
@@ -240,8 +240,8 @@ irqreturn_t wiegand_data_isr(int irq, void *dev_id)
 {
   struct wiegand *w = (struct wiegand *)dev_id;  
 
-  int data0 = at91_get_gpio_value(AT91_PIN_PB30);
-  int data1 = at91_get_gpio_value(AT91_PIN_PB31);
+  int data0 = at91_get_gpio_value(AT91_PIN_PB7);
+  int data1 = at91_get_gpio_value(AT91_PIN_PB6);
   int value = ((data0 == 1) && (data1 == 0)) ? 0x80 : 0;
 
   if ((data0 == 1) && (data1 == 1))
@@ -255,7 +255,7 @@ irqreturn_t wiegand_data_isr(int irq, void *dev_id)
   //this is the start parity bit 
   if (w->currentBit == 0)
   {
-    at91_set_gpio_value(AT91_PIN_PB28, 1);    
+    at91_set_gpio_value(AT91_PIN_PB9, 1);    
     w->startParity = value;
   }
   else
@@ -279,8 +279,8 @@ void cleanup_module()
   kobject_put(wiegandKObj);
   del_timer(&timer);
 
-  free_irq(AT91_PIN_PB30, &wiegand);
-  free_irq(AT91_PIN_PB31, &wiegand);
+  free_irq(AT91_PIN_PB7, &wiegand);
+  free_irq(AT91_PIN_PB6, &wiegand);
   printk("wiegand removed\n");
 }
 

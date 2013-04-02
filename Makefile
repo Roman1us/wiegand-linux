@@ -1,4 +1,4 @@
-KERNEL_DIR=../r8712u
+KERNEL_DIR=../linux-2.6
 
 obj-m := wiegand-gpio.o
 PWD := $(shell pwd)

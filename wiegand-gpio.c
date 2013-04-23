@@ -116,6 +116,7 @@ void wiegand_timer(unsigned long data)
   if (checkParity(w->buffer, numBytes, w->startParity))
   {
     printk("start parity check failed\n");
+    wiegand_clear(w);
     return; 
   }
     
@@ -123,6 +124,7 @@ void wiegand_timer(unsigned long data)
   if (!checkParity(&w->buffer[numBytes], numBytes, endParity))
   {
     printk("end parity check failed\n");
+    wiegand_clear(w);
     return; 
   }
 

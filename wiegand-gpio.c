@@ -1,6 +1,6 @@
-/* wiegand-gpio.c 
- * 
- * Wiegand driver using GPIO an interrupts. 
+/* wiegand-gpio.c
+ *
+ * Wiegand driver using GPIO an interrupts.
  *
  */
 
@@ -18,45 +18,84 @@
 #include <linux/interrupt.h>
 
 #include <asm/irq.h>
-#include <mach/gpio.h>
-
+#include <linux/gpio.h>
 #define MAX_WIEGAND_BYTES 6
+#define MIN_PULSE_INTERVAL_USEC 700
 
+#define GPIO_WIEGAND_D0 6
+#define GPIO_WIEGAND_D1 16
 static struct wiegand
 {
   int startParity;
-  int readNum;
   char buffer[MAX_WIEGAND_BYTES];
   int currentBit;
-  
+
+
+  int readNum;
   unsigned int lastFacilityCode;
   unsigned int lastCardNumber;
-} 
-wiegand; 
+  bool lastDecoded;
+  char lastBuffer[MAX_WIEGAND_BYTES];
+  int numBits;
+
+}
+wiegand;
+
 
 static struct timer_list timer;
+
+static int printbinary(char *buf, unsigned long x, int nbits)
+{
+	unsigned long mask = 1UL << (nbits - 1);
+	while (mask != 0) {
+		*buf++ = (mask & x ? '1' : '0');
+		mask >>= 1;
+	}
+	*buf = '\0';
+
+	return nbits;
+}
+
+void print_wiegand_data(char* output, char* buf, int nbits) {
+  int numBytes = ((nbits -1) / 8 ) + 1;
+  int i;
+
+  for (i=0; i< numBytes; ++i) {
+		if (i == (numBytes - 1)) {
+				printbinary(output, buf[i] >> ((i + 1) * 8 - nbits),  nbits - i * 8);
+				output += nbits - i * 8;
+		} else {
+			printbinary(output, buf[i], 8);
+			output += 8;
+		}
+	}
+}
+
 
 static ssize_t wiegandShow(
   struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
+	static char wiegand_buf[MAX_WIEGAND_BYTES * 8];
+	print_wiegand_data(wiegand_buf, wiegand.lastBuffer, wiegand.numBits);
+
+
   return sprintf(
-    buf, "%.5d:%.3d:%.5d\n", 
+    buf, "%.5d:%s\n",
     wiegand.readNum,
-    wiegand.lastFacilityCode,
-    wiegand.lastCardNumber
+    wiegand_buf
   );
 }
 
 static struct kobj_attribute wiegand_attribute =
-  __ATTR(read, 0666, wiegandShow, NULL);
+  __ATTR(read, 0660, wiegandShow, NULL);
 
-static struct attribute *attrs[] = 
+static struct attribute *attrs[] =
 {
   &wiegand_attribute.attr,
   NULL,   /* need to NULL terminate the list of attributes */
 };
 
-static struct attribute_group attr_group = 
+static struct attribute_group attr_group =
 {
   .attrs = attrs,
 };
@@ -75,7 +114,7 @@ void wiegand_clear(struct wiegand *w)
 void wiegand_init(struct wiegand *w)
 {
   w->lastFacilityCode = 0;
-  w->lastCardNumber = 0; 
+  w->lastCardNumber = 0;
   w->readNum = 0;
   wiegand_clear(w);
 }
@@ -94,182 +133,196 @@ bool checkParity(char *buffer, int numBytes, int parityCheck)
     for (bit = 0; bit < 8; bit++)
     {
       if (mask & buffer[byte])
-      { 
+      {
         parity++;
-      } 
+      }
       mask >>= 1;
     }
-  }  
+  }
   return (parity % 2) == 1;
 }
 
-void wiegand_timer(unsigned long data) 
+
+void wiegand_timer(unsigned long data)
 {
   char *lcn;
+  char buf[MAX_WIEGAND_BYTES * 8];
+  size_t i;
   struct wiegand *w = (struct wiegand *) data;
-  int numBytes = w->currentBit / 16;
-  int endParity = w->buffer[w->currentBit / 8] & (0x80 >> w->currentBit % 8);
+  int numBytes = ((w->currentBit -1) / 8 )+ 1;
+  //~ int endParity = w->buffer[w->currentBit / 8] & (0x80 >> w->currentBit % 8);
 
   printk("wiegand read complete\n");
- 
-  //check the start parity
-  if (checkParity(w->buffer, numBytes, w->startParity))
-  {
-    printk("start parity check failed\n");
-    wiegand_clear(w);
-    return; 
-  }
-    
-  //check the end parity
-  if (!checkParity(&w->buffer[numBytes], numBytes, endParity))
-  {
-    printk("end parity check failed\n");
-    wiegand_clear(w);
-    return; 
-  }
 
-  //ok all good set facility code and card code
-  w->lastFacilityCode = (unsigned int)w->buffer[0];
 
-  //note relies on 32 bit architecture
-  w->lastCardNumber = 0;
-  lcn = (char *)&w->lastCardNumber;
-  lcn[0] = w->buffer[2];
-  lcn[1] = w->buffer[1];
+
+	for (i=0; i< numBytes; ++i){
+		w->lastBuffer[i] = w->buffer[i];
+	}
+
+	w->numBits = w->currentBit;
+	w->lastDecoded = false;
   w->readNum++;
-  
-  printk(
-    "new read available: %d:%d\n", 
-    w->lastFacilityCode, 
-    w->lastCardNumber);
-  
-  //turn off the green led
-  at91_set_gpio_value(AT91_PIN_PB9, 0);
 
-  //reset for next reading 
-  wiegand_clear(w);  
+	print_wiegand_data(buf, w->buffer, w->numBits);
+  printk("new read available [%d]: %s\n",  w->numBits, buf);
+
+
+
+
+  //check the start parity
+  //~ if (checkParity(w->buffer, numBytes, w->startParity))
+  //~ {
+    //~ printk("start parity check failed\n");
+    //~ wiegand_clear(w);
+    //~ return;
+  //~ }
+//~
+  //~ //check the end parity
+  //~ if (!checkParity(&w->buffer[numBytes], numBytes, endParity))
+  //~ {
+    //~ printk("end parity check failed\n");
+    //~ wiegand_clear(w);
+    //~ return;
+  //~ }
+
+
+  //~ w->lastDecoded = true;
+  //~ //ok all good set facility code and card code
+  //~ w->lastFacilityCode = (unsigned int)w->buffer[0];
+//~
+  //~ //note relies on 32 bit architecture
+  //~ w->lastCardNumber = 0;
+  //~ lcn = (char *)&w->lastCardNumber;
+  //~ lcn[0] = w->buffer[2];
+  //~ lcn[1] = w->buffer[1];
+//~
+  //~ printk(
+    //~ "decoded data: %d:%d\n",
+    //~ w->lastFacilityCode,
+    //~ w->lastCardNumber);
+
+
+  //reset for next reading
+  wiegand_clear(w);
 }
+
+static int irq_d0, irq_d1;
 
 int init_module()
 {
-  int retval;
+  int retval, ret;
 
   printk("wiegand intialising\n");
-  
+
   wiegand_init(&wiegand);
-  
-  if(at91_set_gpio_output(AT91_PIN_PB8, 1)) 
-  {
-    printk(KERN_DEBUG"Could not set pin %i for GPIO output.\n", AT91_PIN_PB8);
-    return -EIO;
-  }
-  if(at91_set_gpio_output(AT91_PIN_PB9, 1)) 
-  {
-    printk(KERN_DEBUG"Could not set pin %i for GPIO output.\n", AT91_PIN_PB9);
-    return -EIO;
-  }
- 
-  /** Set pin as GPIO input, with internal pull up */
-  if(at91_set_gpio_input(AT91_PIN_PB7, 1)) 
-  {
-    printk(KERN_DEBUG"Could not set pin %i for GPIO input.\n", AT91_PIN_PB7);
-    return -EIO;
-  }
 
-  /** Set pin as GPIO input, with internal pull up */
-  if(at91_set_gpio_input(AT91_PIN_PB6, 1)) 
-  {
-    printk(KERN_DEBUG"Could not set pin %i for GPIO input.\n", AT91_PIN_PB6);
-    return -EIO;
-  }
 
-  /** Set deglitch for pin */
-  if(at91_set_deglitch(AT91_PIN_PB7, 1)) 
-  {
-    printk(KERN_DEBUG"Could not set pin %i for GPIO deglitch.\n", AT91_PIN_PB7);
-    return -EIO;
-  }
+  ret = gpio_request(GPIO_WIEGAND_D0, "wiegand-d0");
+  if (ret)
+      return ret;
 
-  /** Set deglitch for pin */
-  if(at91_set_deglitch(AT91_PIN_PB6, 1)) 
-  {
-    printk(KERN_DEBUG"Could not set pin %i for GPIO deglitch.\n", AT91_PIN_PB6);
-    return -EIO;
-  }
-      
+  ret = gpio_request(GPIO_WIEGAND_D1, "wiegand-d1");
+  if (ret)
+      return ret;
+
+  ret = gpio_direction_input(GPIO_WIEGAND_D0);
+  if (ret)
+      return ret;
+
+  ret = gpio_direction_input(GPIO_WIEGAND_D1);
+  if (ret)
+      return ret;
+
+
+	irq_d0 = gpio_to_irq(GPIO_WIEGAND_D0);
+	if (irq_d0 < 0) {
+		printk("can't request irq for D0 gpio\n");
+		return irq_d0;
+	}
+
+	irq_d1 = gpio_to_irq(GPIO_WIEGAND_D1);
+	if (irq_d1 < 0) {
+		printk("can't request irq for D1 gpio\n");
+		return irq_d1;
+	}
+
+
   /** Request IRQ for pin */
-  if(request_irq(AT91_PIN_PB7, wiegand_data_isr, IRQF_TRIGGER_FALLING|IRQF_TRIGGER_RISING, "wiegand_data", &wiegand))
+  if(request_any_context_irq(irq_d0, wiegand_data_isr, IRQF_SHARED | IRQF_TRIGGER_FALLING, "wiegand_data", &wiegand))
   {
-    printk(KERN_DEBUG"Can't register IRQ %d\n", AT91_PIN_PB7);
+    printk(KERN_DEBUG"Can't register IRQ %d\n", irq_d0);
     return -EIO;
   }
 
-  if(request_irq(AT91_PIN_PB6, wiegand_data_isr, IRQF_TRIGGER_FALLING|IRQF_TRIGGER_RISING, "wiegand_data", &wiegand))
+  if(request_any_context_irq(irq_d1, wiegand_data_isr, IRQF_SHARED | IRQF_TRIGGER_FALLING, "wiegand_data", &wiegand))
   {
-    printk(KERN_DEBUG"Can't register IRQ %d\n", AT91_PIN_PB6);
+    printk(KERN_DEBUG"Can't register IRQ %d\n", irq_d1);
     return -EIO;
   }
-  
+
   //setup the sysfs
   wiegandKObj = kobject_create_and_add("wiegand", kernel_kobj);
-  
+
   if (!wiegandKObj)
-  { 
+  {
     printk("wiegand failed to create sysfs\n");
     return -ENOMEM;
-  } 
+  }
 
   retval = sysfs_create_group(wiegandKObj, &attr_group);
   if (retval)
   {
     kobject_put(wiegandKObj);
   }
-  
+
   //setup the timer
   init_timer(&timer);
   timer.function = wiegand_timer;
   timer.data = (unsigned long) &wiegand;
-  
-  //turn off leds 
-  at91_set_gpio_value(AT91_PIN_PB8, 0);
-  at91_set_gpio_value(AT91_PIN_PB9, 0);
+
 
   printk("wiegand ready\n");
-  return retval;  
+  return retval;
 }
 
 irqreturn_t wiegand_data_isr(int irq, void *dev_id)
 {
-  struct wiegand *w = (struct wiegand *)dev_id;  
+  struct wiegand *w = (struct wiegand *)dev_id;
+  struct timespec ts, interval;
+  static struct timespec lastts;
+  int value = (irq == irq_d1) ? 0x80 : 0;
 
-  int data0 = at91_get_gpio_value(AT91_PIN_PB7);
-  int data1 = at91_get_gpio_value(AT91_PIN_PB6);
-  int value = ((data0 == 1) && (data1 == 0)) ? 0x80 : 0;
-
-  if ((data0 == 1) && (data1 == 1))
-  { //rising edge, ignore
-    return IRQ_HANDLED;
+  getnstimeofday(&ts);
+  interval = timespec_sub(ts,lastts);
+  lastts = ts;
+  if ((interval.tv_sec == 0 ) && (interval.tv_nsec < MIN_PULSE_INTERVAL_USEC * 1000)) {
+	  return IRQ_HANDLED;
   }
+
+
+
+//~
+  //~ int data0 = gpio_get_value(GPIO_WIEGAND_D0);
+  //~ int data1 = gpio_get_value(GPIO_WIEGAND_D1);
+  //~ int value = ((data0 == 1) && (data1 == 0)) ? 0x80 : 0;
+
+  //~ if ((data0 == 1) && (data1 == 1))
+  //~ { //rising edge, ignore
+    //~ return IRQ_HANDLED;
+  //~ }
 
   //stop the end of transfer timer
   del_timer(&timer);
 
-  //this is the start parity bit 
-  if (w->currentBit == 0)
-  {
-    at91_set_gpio_value(AT91_PIN_PB9, 1);    
-    w->startParity = value;
-  }
-  else
-  {
-value ? printk("1 ") : printk("0 "); 
-    w->buffer[(w->currentBit-1) / 8] |= (value >> ((w->currentBit-1) % 8)); 
-  }
+	if (w->currentBit <=  MAX_WIEGAND_BYTES * 8) {
+		w->buffer[(w->currentBit) / 8] |= (value >> ((w->currentBit) % 8));
+	}
 
   w->currentBit++;
 
   //if we don't get another interrupt for 50ms we
-  //assume the data is complete.   
+  //assume the data is complete.
   timer.expires = jiffies + msecs_to_jiffies(50);
   add_timer(&timer);
 
@@ -281,11 +334,19 @@ void cleanup_module()
   kobject_put(wiegandKObj);
   del_timer(&timer);
 
-  free_irq(AT91_PIN_PB7, &wiegand);
-  free_irq(AT91_PIN_PB6, &wiegand);
+  free_irq(irq_d0, &wiegand);
+  free_irq(irq_d1, &wiegand);
+
+  gpio_free(GPIO_WIEGAND_D0);
+  gpio_free(GPIO_WIEGAND_D1);
+
+
+
   printk("wiegand removed\n");
 }
 
 MODULE_DESCRIPTION("Wiegand GPIO driver");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("VerveWorks Pty. Ltd.");
+
+

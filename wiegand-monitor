@@ -6,18 +6,30 @@
 # UDP on port 9999
 #
 #
-lastReadNum=" "
+WIEGAND_LAST_READ_NUMBER=" "
+WIEGAND_DEV="/sys/kernel/wiegand/read"
+
+# Create topics for virtual device
+#mosquitto_pub -t /devices/wiegand/meta/name -m Wiegand -r
+#mosquitto_pub -t /devices/wiegand/meta/driver -m wb-mqtt-wiegand -r
+#mosquitto_pub -t /devices/wiegand/controls/Reader/meta/type -m text -r
+#mosquitto_pub -t /devices/wiegand/controls/Reader/meta/order -m 1 -r
+#mosquitto_pub -t /devices/wiegand/controls/Reader/meta/readonly -m 1 -r
+
 
 while [ 1 ]; do
-  IN=`cat "/sys/kernel/wiegand/read"`
+
+  IN=`cat ${WIEGAND_DEV}`
   set -- "$IN"
   IFS=":"; declare -a Array=($*)
 
-  if [ $lastReadNum != "${Array[0]}" ]
+  if [ $WIEGAND_LAST_READ_NUMBER != "${Array[0]}" ]
   then
-    lastReadNum="${Array[0]}"
-    echo "${Array[0]} Facility: ${Array[1]} Card: ${Array[2]}"
-    #echo "${Array[0]} Facility: ${Array[1]} Card: ${Array[2]}" | nc -b -q 1 -u 192.168.1.255 9999
+    WIEGAND_LAST_READ_NUMBER="${Array[0]}"
+    echo "${Array[0]} Data: ${Array[1]}"
+    #mosquitto_pub -t /devices/wiegand/controls/Reader -m "${Array[0]} > ${Array[1]}" -r
   fi
-  sleep 1;
+
+  inotifywait -e modify ${WIEGAND_DEV} &> /dev/null
 done
+
